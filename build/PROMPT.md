@@ -185,7 +185,29 @@ After parsing, sanity-check that these famous verses match the canonical CUV tex
 bible-memorize-progress-v1   → { "<ref>": { box: 0..4, lastReviewed: ISO } }
 bible-memorize-custom-v1     → [{ ref, text }, ...]   user-added via browse
 bible-memorize-settings-v1   → { voiceURI, rate, pitch, openai: { enabled, apiKey, voice, model } }
+bible-memorize-month-v1      → "all" | "1".."12"   active-month filter
 ```
+
+### Verse plan (12-month structure)
+
+`verses.js` exposes both a structured plan and a flat list:
+
+```js
+window.VERSE_PLAN = {
+  meta: { name: "生命河 背經行動", description: "..." },
+  months: [
+    { month: 1, theme: "...", verses: [{ ref, text }, ...] },
+    ...
+    { month: 12, theme: "(待填入)", verses: [] },
+  ],
+};
+// Each verse gets month + theme attached when flattened:
+window.VERSES = window.VERSE_PLAN.months.flatMap(m =>
+  m.verses.map(v => ({ ...v, month: m.month, theme: m.theme }))
+);
+```
+
+Default active month = current calendar month (`new Date().getMonth()+1`), or `"all"` if the current month has no verses. Selection persists in `MONTH_KEY`. The drill / exam queues and the stats line ("X月 · 今日 N · 共 N · 已熟練 N") all respect the active month. The my-list view groups verses by month with section headers.
 
 ### Top navigation
 

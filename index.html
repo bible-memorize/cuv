@@ -197,6 +197,7 @@
   const PROGRESS_KEY = "bible-memorize-progress-v1";
   const CUSTOM_KEY   = "bible-memorize-custom-v1";
   const SETTINGS_KEY = "bible-memorize-settings-v1";
+  const MONTH_KEY    = "bible-memorize-month-v1";   // "all" | "1".."12"
   const INTERVALS = [0, 1, 3, 7, 15];  // Leitner box intervals (days). Box 0 = due now.
   const MAX_BOX = 4;
   const TERMINAL_PUNCT = /[。」』！？]/;
@@ -232,6 +233,37 @@
     customVerses.forEach(v => map.set(v.ref, v));
     return [...map.values()];
   };
+
+  // Active-month filtering -----------------------------------------------------
+  function monthsList() {
+    return window.VERSE_PLAN?.months || [];
+  }
+  function monthHasVerses(m) {
+    return (monthsList().find(x => x.month === m)?.verses.length || 0) > 0;
+  }
+  function getActiveMonth() {
+    const saved = localStorage.getItem(MONTH_KEY);
+    if (saved === "all") return "all";
+    if (saved && /^\d+$/.test(saved)) return parseInt(saved, 10);
+    // Default = current calendar month, but fall back to "all" if it has no verses yet
+    const m = new Date().getMonth() + 1;
+    return monthHasVerses(m) ? m : "all";
+  }
+  function setActiveMonth(m) {
+    localStorage.setItem(MONTH_KEY, String(m));
+  }
+  function activeVerses() {
+    const m = getActiveMonth();
+    const all = allVerses();
+    if (m === "all") return all;
+    return all.filter(v => v.month === m);
+  }
+  function currentMonthLabel() {
+    const m = getActiveMonth();
+    if (m === "all") return "全部月份";
+    const entry = monthsList().find(x => x.month === m);
+    return entry ? `${m}月 — ${entry.theme}` : `${m}月`;
+  }
 
   const getState = (ref) => progress[ref] || { box: 0, lastReviewed: null };
   const isDue = (ref) => {
@@ -450,7 +482,7 @@
   let drill = { current: null, queue: [], revealed: new Set(), fullyShown: false };
 
   function buildDrillQueue() {
-    const due = allVerses().filter(v => isDue(v.ref));
+    const due = activeVerses().filter(v => isDue(v.ref));
     due.sort((a, b) => {
       const sa = getState(a.ref), sb = getState(b.ref);
       if (!sa.lastReviewed && !sb.lastReviewed) return 0;
@@ -484,8 +516,21 @@
       return;
     }
 
+    const activeMonth = getActiveMonth();
+    if (activeVerses().length === 0) {
+      content.innerHTML = renderMonthBar() + `
+        <div class="card">
+          <div class="empty">
+            <div style="font-size:1.1rem;margin-bottom:0.75rem;">${activeMonth}月暫無經文</div>
+            <div>請從上方下拉切換月份,或選「全部月份」。</div>
+          </div>
+        </div>`;
+      wireMonthBar();
+      return;
+    }
+
     if (!drill.current) {
-      content.innerHTML = `
+      content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="empty">
             <div style="font-size:1.2rem;margin-bottom:0.5rem;">今日已完成 ✓</div>
@@ -493,18 +538,23 @@
           </div>
           ${renderBoxDist()}
         </div>`;
+      wireMonthBar();
       return;
     }
 
     const masked = renderMasked(drill.current.text, drill.revealed);
     const box = getState(drill.current.ref).box;
+    const themeLine = drill.current.month
+      ? `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">${drill.current.month}月 · ${escapeHtml(drill.current.theme || "")}</div>`
+      : "";
 
-    content.innerHTML = `
+    content.innerHTML = renderMonthBar() + `
       <div class="card">
         <div class="ref">
           <span class="speak" data-action="speak" title="朗讀">🔊</span>
           ${escapeHtml(drill.current.ref)} · 盒 ${box}
         </div>
+        ${themeLine}
         <div class="text" id="verse">${masked}</div>
         <div class="controls">
           ${drill.fullyShown
@@ -517,6 +567,7 @@
         ${renderBoxDist()}
       </div>`;
 
+    wireMonthBar();
     content.querySelectorAll("[data-action]").forEach(b => {
       b.addEventListener("click", () => handleDrill(b.dataset.action));
     });
@@ -559,19 +610,48 @@
   }
 
   function updateStats() {
-    const total = allVerses().length;
-    const due = allVerses().filter(v => isDue(v.ref)).length;
-    const mastered = allVerses().filter(v => getState(v.ref).box === MAX_BOX).length;
+    const scope = activeVerses();
+    const total = scope.length;
+    const due = scope.filter(v => isDue(v.ref)).length;
+    const mastered = scope.filter(v => getState(v.ref).box === MAX_BOX).length;
+    const m = getActiveMonth();
+    const prefix = m === "all" ? "" : `${m}月 · `;
     document.getElementById("stats").textContent =
-      `今日 ${due} · 全部 ${total} · 已熟練 ${mastered}`;
+      `${prefix}今日 ${due} · 共 ${total} · 已熟練 ${mastered}`;
   }
 
   function renderBoxDist() {
     const counts = [0, 0, 0, 0, 0];
-    allVerses().forEach(v => counts[getState(v.ref).box]++);
+    activeVerses().forEach(v => counts[getState(v.ref).box]++);
     return `<div class="box-dist">
       ${counts.map((c, i) => `<span>盒 ${i}: ${c}</span>`).join("")}
     </div>`;
+  }
+
+  function renderMonthBar() {
+    const cur = getActiveMonth();
+    const opts = monthsList().map(m => {
+      const sel = cur === m.month ? "selected" : "";
+      const empty = m.verses.length === 0 ? " (空)" : ` (${m.verses.length})`;
+      return `<option value="${m.month}" ${sel}>${m.month}月 — ${escapeHtml(m.theme)}${empty}</option>`;
+    }).join("");
+    return `
+      <div style="background:var(--card);border:1px solid var(--line);border-radius:6px;padding:0.5rem 0.75rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;">
+        <span style="color:var(--muted);white-space:nowrap;">📅</span>
+        <select id="month-select" style="flex:1;min-width:0;padding:0.35rem;border:1px solid var(--line);border-radius:3px;background:var(--card);color:var(--ink);font-family:inherit;font-size:0.9rem;">
+          <option value="all" ${cur==="all"?"selected":""}>全部月份</option>
+          ${opts}
+        </select>
+      </div>`;
+  }
+
+  function wireMonthBar() {
+    const sel = document.getElementById("month-select");
+    if (!sel) return;
+    sel.addEventListener("change", () => {
+      setActiveMonth(sel.value === "all" ? "all" : parseInt(sel.value, 10));
+      setView(currentView);
+    });
   }
 
   // ============================================================================
@@ -690,21 +770,36 @@
       return;
     }
 
+    const activeMonth = getActiveMonth();
+    if (activeVerses().length === 0) {
+      content.innerHTML = renderMonthBar() + `<div class="card"><div class="empty">
+        <div style="font-size:1.1rem;margin-bottom:0.75rem;">${activeMonth}月暫無經文</div>
+        <div>請從上方下拉切換月份。</div>
+      </div></div>`;
+      wireMonthBar();
+      return;
+    }
+
     if (!exam.current) {
-      content.innerHTML = `<div class="card"><div class="empty">
+      content.innerHTML = renderMonthBar() + `<div class="card"><div class="empty">
         <div style="font-size:1.2rem;margin-bottom:0.5rem;">今日已完成 ✓</div>
         <div>下一輪複習依 Leitner 間隔自動安排。</div>
       </div></div>`;
+      wireMonthBar();
       return;
     }
 
     const ref = exam.current.ref;
     const box = getState(ref).box;
+    const themeLine = exam.current.month
+      ? `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;">${exam.current.month}月 · ${escapeHtml(exam.current.theme || "")}</div>`
+      : "";
 
     if (exam.phase === "ready") {
-      content.innerHTML = `
+      content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          ${themeLine}
           <div class="text" style="text-align:center;color:var(--muted);padding:2rem 0;font-size:1.1rem;">
             憑記憶背誦
           </div>
@@ -715,9 +810,10 @@
           </div>
         </div>`;
     } else if (exam.phase === "preview") {
-      content.innerHTML = `
+      content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          ${themeLine}
           <div class="text">${escapeHtml(exam.current.text)}</div>
           <div class="controls">
             <button class="btn primary" data-action="start">🎤 開始錄音</button>
@@ -726,9 +822,10 @@
         </div>`;
     } else if (exam.phase === "listening") {
       const live = traditionalize(exam.finalText + exam.interimText);
-      content.innerHTML = `
+      content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          ${themeLine}
           <div class="text" id="exam-live" style="font-size:1.1rem;color:var(--muted);min-height:6rem;">
             ${live ? escapeHtml(live) : "🎙️ 正在聆聽…請開始背誦"}
           </div>
@@ -744,9 +841,10 @@
         `<span style="color:${r.statuses[i]==='match' ? 'var(--ok)' : 'var(--no)'};font-weight:${r.statuses[i]==='match'?'normal':'600'};">${escapeHtml(c)}</span>`
       ).join("");
 
-      content.innerHTML = `
+      content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          ${themeLine}
           <div style="font-size:1.4rem;margin:0.75rem 0;text-align:center;color:${passed?'var(--ok)':'var(--no)'};">
             ${passed ? '✓' : '✗'} ${r.matched} / ${r.total} 字正確 (${pct}%)
           </div>
@@ -764,6 +862,7 @@
         </div>`;
     }
 
+    wireMonthBar();
     content.querySelectorAll("[data-action]").forEach(b =>
       b.addEventListener("click", () => handleExam(b.dataset.action))
     );
@@ -1037,23 +1136,47 @@
       return;
     }
 
+    // Group by month. Unassigned (custom verses without month) go under "其他".
+    const groups = new Map();
+    monthsList().forEach(m => groups.set(m.month, { theme: m.theme, verses: [] }));
+    groups.set("other", { theme: "其他 / 自訂", verses: [] });
+    verses.forEach(v => {
+      const key = (v.month && groups.has(v.month)) ? v.month : "other";
+      groups.get(key).verses.push(v);
+    });
+
+    const renderCard = (v) => {
+      const box = getState(v.ref).box;
+      const due = isDue(v.ref) ? "✓今日" : "—";
+      return `
+        <div class="verse-result" data-ref="${escapeHtml(v.ref)}">
+          <div class="vr-text">
+            <div class="vr-ref">${escapeHtml(v.ref)} · 盒 ${box} · ${due}</div>
+            <div class="vr-body">${escapeHtml(v.text)}</div>
+          </div>
+          ${isCustom(v.ref)
+            ? `<button data-remove="${escapeHtml(v.ref)}" style="border-color:var(--no);color:var(--no);">移除</button>`
+            : `<span style="color:var(--muted);font-size:0.8rem;">內建</span>`}
+        </div>`;
+    };
+
+    const sections = [];
+    for (const [k, g] of groups) {
+      if (!g.verses.length) continue;
+      const heading = k === "other" ? g.theme : `${k}月 — ${escapeHtml(g.theme)}`;
+      sections.push(`
+        <div style="margin-top:1.25rem;padding-top:0.75rem;border-top:1px solid var(--line);font-weight:600;color:var(--accent);">
+          ${heading} <span style="font-weight:normal;color:var(--muted);font-size:0.85rem;">(${g.verses.length})</span>
+        </div>
+        ${g.verses.map(renderCard).join("")}
+      `);
+    }
+
     content.innerHTML = `
       <div class="card">
-        <div style="font-weight:600;margin-bottom:0.75rem;">我的清單(${verses.length})</div>
-        ${verses.map(v => {
-          const box = getState(v.ref).box;
-          const due = isDue(v.ref) ? "✓今日" : "—";
-          return `
-            <div class="verse-result" data-ref="${escapeHtml(v.ref)}">
-              <div class="vr-text">
-                <div class="vr-ref">${escapeHtml(v.ref)} · 盒 ${box} · ${due}</div>
-                <div class="vr-body">${escapeHtml(v.text)}</div>
-              </div>
-              ${isCustom(v.ref)
-                ? `<button data-remove="${escapeHtml(v.ref)}" style="border-color:var(--no);color:var(--no);">移除</button>`
-                : `<span style="color:var(--muted);font-size:0.8rem;">內建</span>`}
-            </div>`;
-        }).join("")}
+        <div style="font-weight:600;margin-bottom:0.5rem;">我的清單(${verses.length})</div>
+        <div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.25rem;">${escapeHtml(window.VERSE_PLAN?.meta?.name || "")}</div>
+        ${sections.join("")}
       </div>`;
 
     content.querySelectorAll("[data-remove]").forEach(b => {
