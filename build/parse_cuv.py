@@ -3,7 +3,7 @@
 Parse the 和合本 (Chinese Union Version) PDF into a verse-indexed JSON.
 
 Source:  raw/09-archive/06-book/聖經/聖經-新標點_和合本.pdf  (上帝版)
-Output:  app/memorize/cuv.json
+Output:  app/memorize-cuv/cuv.json
 
 Schema:
   {
@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PDF = ROOT / "raw/09-archive/06-book/聖經/聖經-新標點_和合本.pdf"
-OUT = ROOT / "app/memorize/cuv.json"
+OUT = ROOT / "app/memorize-cuv/cuv.json"
 
 # Canonical 66-book table: (slug, zh-name, common abbr, testament).
 # zh-name must exactly match the PDF's section title text.

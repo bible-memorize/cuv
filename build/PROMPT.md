@@ -33,7 +33,7 @@ All UI in Traditional Chinese. Structural fields (filenames, JSON keys, slugs, f
 ## Repo layout
 
 ```
-app/memorize/
+app/memorize-cuv/
 ├── index.html              # The app — HTML + CSS + JS
 ├── verses.js               # window.VERSE_PLAN — 12 monthly themes; flat window.VERSES for compat
 ├── cuv.json                # Full 66-book CUV (神版), ~4.7 MB, lazy-loaded
@@ -45,7 +45,7 @@ app/memorize/
     └── PROMPT.md           # This file
 ```
 
-GitHub Pages serves `app/memorize/` as the site root.
+GitHub Pages serves `app/memorize-cuv/` as the site root.
 
 ---
 
@@ -401,7 +401,7 @@ Use `parse_cuv.py` output → `cuv.json` to pull the canonical text per verse. D
 
 ## Deployment
 
-1. `cd app/memorize`
+1. `cd app/memorize-cuv`
 2. `git init -b main`
 3. `git add -A && git commit -s -m "Initial commit"` (always use `-s`)
 4. Create a public repo on GitHub. Public URL: `https://<user>.github.io/<repo>/`.

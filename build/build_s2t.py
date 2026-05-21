@@ -3,7 +3,7 @@
 Generate s2t.js — a Simplified→Traditional character map.
 
 Source: OpenCC project's STCharacters.txt + TWVariants.txt
-Output: app/memorize/s2t.js  (window.S2T = { "简": "簡", ... })
+Output: app/memorize-cuv/s2t.js  (window.S2T = { "简": "簡", ... })
 
 When OpenCC lists multiple Traditional candidates for one Simplified character,
 pick the first (most common) — this is a coarse one-to-one mapping suitable
@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT  = ROOT / "app/memorize/s2t.js"
+OUT  = ROOT / "app/memorize-cuv/s2t.js"
 
 ST_URL = "https://raw.githubusercontent.com/BYVoid/OpenCC/master/data/dictionary/STCharacters.txt"
 # General Traditional ↔ TW-variant Traditional. We read this REVERSED so any
