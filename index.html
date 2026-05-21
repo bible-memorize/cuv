@@ -171,6 +171,7 @@
 
   <nav>
     <button class="active" data-view="drill">練習</button>
+    <button data-view="exam">檢驗</button>
     <button data-view="browse">瀏覽</button>
     <button data-view="list">我的清單</button>
     <button data-view="settings">設定</button>
@@ -568,6 +569,269 @@
     return `<div class="box-dist">
       ${counts.map((c, i) => `<span>盒 ${i}: ${c}</span>`).join("")}
     </div>`;
+  }
+
+  // ============================================================================
+  // Exam view (speech-recognition verification)
+  // ============================================================================
+  const SR_CLASS = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  let exam = {
+    current: null,
+    phase: "ready",      // "ready" | "preview" | "listening" | "result"
+    finalText: "",
+    interimText: "",
+    result: null,        // {total, matched, accuracy, statuses, canonChars, extras}
+  };
+  let _recognition = null;
+
+  function abortRecognition() {
+    if (_recognition) {
+      try {
+        _recognition.onend = null;
+        _recognition.onresult = null;
+        _recognition.onerror = null;
+        _recognition.abort();
+      } catch {}
+      _recognition = null;
+    }
+  }
+
+  function normalizeHan(s) {
+    return [...(s || "")].filter(c => /[一-鿿]/.test(c));
+  }
+
+  // LCS-based char-by-char alignment. Returns ops: {type, c}.
+  function lcsAlign(a, b) {
+    const n = a.length, m = b.length;
+    const dp = Array.from({length: n+1}, () => new Int32Array(m+1));
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < m; j++) {
+        if (a[i] === b[j]) dp[i+1][j+1] = dp[i][j] + 1;
+        else dp[i+1][j+1] = Math.max(dp[i][j+1], dp[i+1][j]);
+      }
+    }
+    const ops = [];
+    let i = n, j = m;
+    while (i > 0 && j > 0) {
+      if (a[i-1] === b[j-1])      { ops.push({type:"match",   c:a[i-1]}); i--; j--; }
+      else if (dp[i-1][j] >= dp[i][j-1]) { ops.push({type:"missing", c:a[i-1]}); i--; }
+      else                         { ops.push({type:"extra",   c:b[j-1]}); j--; }
+    }
+    while (i > 0) { ops.push({type:"missing", c:a[i-1]}); i--; }
+    while (j > 0) { ops.push({type:"extra",   c:b[j-1]}); j--; }
+    return ops.reverse();
+  }
+
+  function compareVerse(canonical, spoken) {
+    const a = normalizeHan(canonical);
+    const b = normalizeHan(spoken);
+    const ops = lcsAlign(a, b);
+    const statuses = [];
+    for (const op of ops) {
+      if (op.type === "match")        statuses.push("match");
+      else if (op.type === "missing") statuses.push("miss");
+    }
+    const matched = statuses.filter(s => s === "match").length;
+    const extras  = ops.filter(o => o.type === "extra").map(o => o.c).join("");
+    return {
+      total: a.length,
+      matched,
+      accuracy: a.length ? matched / a.length : 0,
+      statuses, canonChars: a, extras,
+    };
+  }
+
+  function nextExamCard() {
+    abortRecognition();
+    const queue = buildDrillQueue();
+    exam.current = queue[0] || null;
+    exam.phase = "ready";
+    exam.finalText = "";
+    exam.interimText = "";
+    exam.result = null;
+    renderExam();
+  }
+
+  function renderExam() {
+    const content = document.getElementById("content");
+    updateStats();
+
+    if (!SR_CLASS) {
+      content.innerHTML = `<div class="card"><div class="empty">
+        此瀏覽器不支援語音辨識。<br>請改用 Chrome、Safari (iOS 14.5+ / macOS 14+) 或 Edge。
+      </div></div>`;
+      return;
+    }
+
+    if (allVerses().length === 0) {
+      content.innerHTML = `<div class="card"><div class="empty">
+        <div style="font-size:1.1rem;margin-bottom:0.75rem;">尚未加入經文</div>
+        <div>切換到「瀏覽」分頁,搜尋或選取要背的經文。</div>
+      </div></div>`;
+      return;
+    }
+
+    if (!exam.current) {
+      content.innerHTML = `<div class="card"><div class="empty">
+        <div style="font-size:1.2rem;margin-bottom:0.5rem;">今日已完成 ✓</div>
+        <div>下一輪複習依 Leitner 間隔自動安排。</div>
+      </div></div>`;
+      return;
+    }
+
+    const ref = exam.current.ref;
+    const box = getState(ref).box;
+
+    if (exam.phase === "ready") {
+      content.innerHTML = `
+        <div class="card">
+          <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          <div class="text" style="text-align:center;color:var(--muted);padding:2rem 0;font-size:1.1rem;">
+            憑記憶背誦
+          </div>
+          <div class="controls">
+            <button class="btn" data-action="preview">💭 顯示經文</button>
+            <button class="btn primary" data-action="start">🎤 開始錄音</button>
+            <button class="btn" data-action="skip">跳過</button>
+          </div>
+        </div>`;
+    } else if (exam.phase === "preview") {
+      content.innerHTML = `
+        <div class="card">
+          <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          <div class="text">${escapeHtml(exam.current.text)}</div>
+          <div class="controls">
+            <button class="btn primary" data-action="start">🎤 開始錄音</button>
+            <button class="btn" data-action="back">返回</button>
+          </div>
+        </div>`;
+    } else if (exam.phase === "listening") {
+      const live = exam.finalText + exam.interimText;
+      content.innerHTML = `
+        <div class="card">
+          <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          <div class="text" id="exam-live" style="font-size:1.1rem;color:var(--muted);min-height:6rem;">
+            ${live ? escapeHtml(live) : "🎙️ 正在聆聽…請開始背誦"}
+          </div>
+          <div class="controls">
+            <button class="btn no" data-action="stop">🛑 完成</button>
+          </div>
+        </div>`;
+    } else if (exam.phase === "result") {
+      const r = exam.result;
+      const pct = Math.round(r.accuracy * 100);
+      const passed = pct >= 80;
+      const diff = r.canonChars.map((c, i) =>
+        `<span style="color:${r.statuses[i]==='match' ? 'var(--ok)' : 'var(--no)'};font-weight:${r.statuses[i]==='match'?'normal':'600'};">${escapeHtml(c)}</span>`
+      ).join("");
+
+      content.innerHTML = `
+        <div class="card">
+          <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
+          <div style="font-size:1.4rem;margin:0.75rem 0;text-align:center;color:${passed?'var(--ok)':'var(--no)'};">
+            ${passed ? '✓' : '✗'} ${r.matched} / ${r.total} 字正確 (${pct}%)
+          </div>
+          <div class="text" style="line-height:2.4;">${diff}</div>
+          <div style="margin-top:0.75rem;padding:0.75rem;background:#f7f4ed;border-radius:4px;font-size:0.9rem;color:var(--muted);line-height:1.7;">
+            <div><strong style="color:var(--ink);">原文:</strong>${escapeHtml(exam.current.text)}</div>
+            <div style="margin-top:0.4rem;"><strong style="color:var(--ink);">你說:</strong>${escapeHtml(exam.finalText) || "<無辨識結果>"}</div>
+            ${r.extras ? `<div style="margin-top:0.4rem;color:var(--no);"><strong>多餘字:</strong>${escapeHtml(r.extras)}</div>` : ""}
+          </div>
+          <div class="controls" style="margin-top:1rem;">
+            <button class="btn ok" data-action="pass">通過</button>
+            <button class="btn no" data-action="fail">不通過</button>
+            <button class="btn" data-action="retry">再試</button>
+          </div>
+        </div>`;
+    }
+
+    content.querySelectorAll("[data-action]").forEach(b =>
+      b.addEventListener("click", () => handleExam(b.dataset.action))
+    );
+  }
+
+  function handleExam(action) {
+    if (action === "preview") { exam.phase = "preview"; renderExam(); }
+    else if (action === "back") { exam.phase = "ready"; renderExam(); }
+    else if (action === "start") { startExamListening(); }
+    else if (action === "stop") { if (_recognition) { try { _recognition.stop(); } catch {} } else finalizeExamListening(); }
+    else if (action === "skip") {
+      // Skip without grading: drop current from queue temporarily
+      const q = buildDrillQueue().filter(v => v.ref !== exam.current.ref);
+      exam.current = q[0] || null;
+      exam.phase = "ready"; exam.finalText = ""; exam.interimText = ""; exam.result = null;
+      renderExam();
+    }
+    else if (action === "pass") {
+      const s = getState(exam.current.ref);
+      progress[exam.current.ref] = { box: Math.min(s.box + 1, MAX_BOX), lastReviewed: new Date().toISOString() };
+      saveJSON(PROGRESS_KEY, progress);
+      nextExamCard();
+    }
+    else if (action === "fail") {
+      progress[exam.current.ref] = { box: 0, lastReviewed: new Date().toISOString() };
+      saveJSON(PROGRESS_KEY, progress);
+      nextExamCard();
+    }
+    else if (action === "retry") {
+      exam.phase = "ready"; exam.finalText = ""; exam.interimText = ""; exam.result = null;
+      renderExam();
+    }
+  }
+
+  function startExamListening() {
+    if (!SR_CLASS) return;
+    exam.finalText = "";
+    exam.interimText = "";
+    exam.phase = "listening";
+    renderExam();
+
+    const rec = new SR_CLASS();
+    rec.lang = "zh-TW";
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onresult = (e) => {
+      let final = "", interim = "";
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) final += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      exam.finalText = final;
+      exam.interimText = interim;
+      // In-place update of just the transcript line to avoid full re-render flicker
+      const live = document.getElementById("exam-live");
+      if (live) live.textContent = (final + interim) || "🎙️ 正在聆聽…";
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed") {
+        alert("麥克風存取被拒絕。請在瀏覽器設定中允許此網站使用麥克風。");
+      } else if (e.error !== "aborted" && e.error !== "no-speech") {
+        alert("語音辨識錯誤:" + e.error);
+      }
+      abortRecognition();
+      exam.phase = "ready";
+      renderExam();
+    };
+    rec.onend = () => finalizeExamListening();
+
+    try {
+      rec.start();
+      _recognition = rec;
+    } catch (err) {
+      alert("無法啟動語音辨識:" + err.message);
+      exam.phase = "ready"; renderExam();
+    }
+  }
+
+  function finalizeExamListening() {
+    if (exam.phase !== "listening") return;  // guard against re-entry
+    _recognition = null;
+    exam.result = compareVerse(exam.current.text, exam.finalText);
+    exam.phase = "result";
+    renderExam();
   }
 
   // ============================================================================
@@ -1017,11 +1281,14 @@
   let currentView = "drill";
 
   function setView(v) {
+    // Cleanup: stop any active speech recognition when leaving exam view
+    if (currentView === "exam" && v !== "exam") abortRecognition();
     currentView = v;
     document.querySelectorAll("nav [data-view]").forEach(b => {
       b.classList.toggle("active", b.dataset.view === v);
     });
     if (v === "drill") { nextDrillCard(); }
+    else if (v === "exam") { nextExamCard(); }
     else if (v === "browse") { renderBrowse(); }
     else if (v === "list") { renderList(); }
     else if (v === "settings") { renderSettings(); }
