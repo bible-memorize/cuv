@@ -796,12 +796,17 @@
       : "";
 
     if (exam.phase === "ready") {
+      const HINT_CHARS = 3;
+      const hint = exam.current.text.slice(0, HINT_CHARS);
       content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
           ${themeLine}
-          <div class="text" style="text-align:center;color:var(--muted);padding:2rem 0;font-size:1.1rem;">
-            憑記憶背誦
+          <div class="text" style="text-align:center;padding:1.5rem 0 0.5rem;font-size:1.4rem;color:var(--ink);">
+            「${escapeHtml(hint)}…」
+          </div>
+          <div style="text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:1.25rem;">
+            憑記憶背誦完整經文
           </div>
           <div class="controls">
             <button class="btn" data-action="preview">💭 顯示經文</button>
