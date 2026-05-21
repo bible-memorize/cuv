@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>和合本背經</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --card: #ffffff;
+    --ink: #2a2a2a;
+    --muted: #8a8a8a;
+    --accent: #6b4f3a;
+    --ok: #4a7c59;
+    --no: #a8615a;
+    --line: #e5e0d8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Serif TC", serif;
+    background: var(--bg); color: var(--ink);
+    line-height: 1.8;
+  }
+  .app { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem; }
+  header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1px solid var(--line); padding-bottom: 0.75rem; margin-bottom: 1rem;
+  }
+  h1 { font-size: 1.1rem; margin: 0; font-weight: 600; letter-spacing: 0.05em; }
+  .stats { font-size: 0.85rem; color: var(--muted); }
+  nav {
+    display: flex; gap: 0.5rem; margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line); padding-bottom: 0.5rem;
+  }
+  nav button {
+    background: none; border: none; color: var(--muted); padding: 0.4rem 0.8rem;
+    cursor: pointer; font-size: 0.95rem; font-family: inherit; border-radius: 4px;
+  }
+  nav button.active { color: var(--accent); background: #f0ece4; font-weight: 600; }
+  nav button:hover { color: var(--ink); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+    padding: 1.75rem 1.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .ref { font-size: 0.95rem; color: var(--accent); font-weight: 600; letter-spacing: 0.1em; margin-bottom: 1rem; }
+  .ref .speak { float: right; cursor: pointer; opacity: 0.6; font-size: 1.1rem; user-select: none; }
+  .ref .speak:hover { opacity: 1; }
+  .text {
+    font-size: 1.35rem; line-height: 2.1;
+    font-family: "Noto Serif TC", "Songti TC", serif;
+    min-height: 6rem; letter-spacing: 0.05em;
+  }
+  .text .masked { color: var(--muted); opacity: 0.5; }
+  .text .revealed { color: var(--ink); }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.5rem;
+  }
+  button.btn {
+    flex: 1; min-width: 100px; padding: 0.65rem 1rem;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 4px; cursor: pointer; font-size: 0.95rem;
+    font-family: inherit; transition: all 0.15s;
+  }
+  button.btn:hover { background: #f0ece4; }
+  button.btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.btn.primary:hover { background: #5a4230; }
+  button.btn.ok { color: var(--ok); border-color: var(--ok); }
+  button.btn.ok:hover { background: var(--ok); color: white; }
+  button.btn.no { color: var(--no); border-color: var(--no); }
+  button.btn.no:hover { background: var(--no); color: white; }
+  button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .footer {
+    margin-top: 1.5rem; text-align: center;
+    color: var(--muted); font-size: 0.8rem;
+    display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
+  }
+  .footer a, .footer label { color: var(--muted); cursor: pointer; text-decoration: underline; }
+  .footer a:hover, .footer label:hover { color: var(--accent); }
+  .footer input[type=file] { display: none; }
+
+  .empty { text-align: center; color: var(--muted); padding: 3rem 0; }
+
+  .box-dist {
+    display: flex; gap: 0.25rem; font-size: 0.75rem;
+    color: var(--muted); margin-top: 0.5rem;
+  }
+  .box-dist span {
+    background: var(--card); border: 1px solid var(--line);
+    padding: 0.15rem 0.5rem; border-radius: 3px;
+  }
+
+  /* ---- Browse view ---- */
+  .browse-tabs {
+    display: flex; gap: 0.5rem; margin-bottom: 1rem;
+  }
+  .browse-tabs button {
+    flex: 1; background: var(--card); border: 1px solid var(--line);
+    padding: 0.5rem 0.75rem; border-radius: 4px;
+    cursor: pointer; font-family: inherit; font-size: 0.9rem;
+  }
+  .browse-tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .browse input[type=text] {
+    width: 100%; padding: 0.6rem 0.8rem; font-size: 1rem;
+    border: 1px solid var(--line); border-radius: 4px;
+    font-family: inherit; background: var(--card); color: var(--ink);
+  }
+  .browse input[type=text]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+  .hint { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+  .loading { text-align: center; color: var(--muted); padding: 2rem 0; }
+
+  .verse-result {
+    background: var(--card); border: 1px solid var(--line);
+    padding: 0.75rem 1rem; border-radius: 4px; margin-top: 0.5rem;
+    display: flex; gap: 0.75rem; align-items: flex-start;
+  }
+  .verse-result .vr-text { flex: 1; }
+  .verse-result .vr-ref { font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.25rem; }
+  .verse-result .vr-body { font-size: 1rem; line-height: 1.7; }
+  .verse-result button {
+    align-self: center; padding: 0.3rem 0.7rem;
+    background: var(--card); border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 3px; cursor: pointer; font-size: 0.85rem; font-family: inherit;
+    white-space: nowrap;
+  }
+  .verse-result button:hover { background: var(--accent); color: white; }
+  .verse-result button.added { border-color: var(--ok); color: var(--ok); background: transparent; cursor: default; }
+  .verse-result button.added:hover { background: transparent; color: var(--ok); }
+
+  .book-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 0.4rem; margin-top: 0.5rem;
+  }
+  .book-grid button {
+    padding: 0.5rem; background: var(--card); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; font-family: inherit; font-size: 0.9rem;
+  }
+  .book-grid button:hover { background: #f0ece4; border-color: var(--accent); }
+  .book-grid .testament-label {
+    grid-column: 1 / -1; color: var(--muted); font-size: 0.85rem;
+    margin-top: 0.75rem; padding-bottom: 0.2rem; border-bottom: 1px solid var(--line);
+  }
+
+  .chap-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+    gap: 0.3rem; margin-top: 0.75rem;
+  }
+  .chap-grid button {
+    padding: 0.4rem; background: var(--card); border: 1px solid var(--line);
+    border-radius: 3px; cursor: pointer; font-family: inherit; font-size: 0.85rem;
+  }
+  .chap-grid button:hover { background: #f0ece4; border-color: var(--accent); }
+  .back-btn {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 0.25rem 0; font-family: inherit; font-size: 0.9rem;
+  }
+  .back-btn:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>和合本背經</h1>
+    <div class="stats" id="stats">—</div>
+  </header>
+
+  <nav>
+    <button class="active" data-view="drill">練習</button>
+    <button data-view="browse">瀏覽</button>
+    <button data-view="list">我的清單</button>
+    <button data-view="settings">設定</button>
+  </nav>
+
+  <div id="content"></div>
+
+  <div class="footer">
+    <a href="#" id="export">匯出進度</a>
+    <label for="import-file">匯入進度</label>
+    <input type="file" id="import-file" accept=".json,application/json">
+    <a href="#" id="reset">清除進度</a>
+  </div>
+</div>
+
+<script src="verses.js"></script>
+<script>
+(() => {
+  // ============================================================================
+  // Constants
+  // ============================================================================
+  const PROGRESS_KEY = "bible-memorize-progress-v1";
+  const CUSTOM_KEY   = "bible-memorize-custom-v1";
+  const SETTINGS_KEY = "bible-memorize-settings-v1";
+  const INTERVALS = [0, 1, 3, 7, 15];  // Leitner box intervals (days). Box 0 = due now.
+  const MAX_BOX = 4;
+  const TERMINAL_PUNCT = /[。」』！？]/;
+  // Quality keywords found in higher-fidelity voice names across OSes/browsers.
+  const HQ_VOICE_RE = /premium|enhanced|neural|wavenet|natural|高品質|高音質/i;
+  // Show only Google voices in the picker (user preference).
+  const VOICE_FILTER_RE = /google/i;
+
+  // ============================================================================
+  // Storage
+  // ============================================================================
+  const loadJSON = (key, fallback) => {
+    try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+    catch { return fallback; }
+  };
+  const saveJSON = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+
+  let progress = loadJSON(PROGRESS_KEY, {});
+  let customVerses = loadJSON(CUSTOM_KEY, []);  // [{ref, text}]
+  let settings = loadJSON(SETTINGS_KEY, { voiceURI: "", rate: 0.85, pitch: 1.0 });
+
+  const allVerses = () => {
+    // Seed + custom, deduplicated by ref (custom overrides seed if same ref)
+    const map = new Map();
+    (window.VERSES || []).forEach(v => map.set(v.ref, v));
+    customVerses.forEach(v => map.set(v.ref, v));
+    return [...map.values()];
+  };
+
+  const getState = (ref) => progress[ref] || { box: 0, lastReviewed: null };
+  const isDue = (ref) => {
+    const s = getState(ref);
+    if (!s.lastReviewed) return true;
+    const days = (Date.now() - new Date(s.lastReviewed).getTime()) / 86400000;
+    return days >= INTERVALS[s.box];
+  };
+
+  // ============================================================================
+  // CUV data — lazy-loaded only when browse view is opened
+  // ============================================================================
+  let cuv = null;   // { meta, books, verses }
+  let cuvByRef = null;  // Map<"可 10:45", "...text..."> for fast lookup
+  let cuvByBook = null; // Map<slug, {abbr, zh, chapters: Map<int, Map<int,text>>}>
+  let cuvLoading = null;
+
+  function loadCUV() {
+    if (cuv) return Promise.resolve(cuv);
+    if (cuvLoading) return cuvLoading;
+    cuvLoading = fetch("cuv.json").then(r => r.json()).then(data => {
+      cuv = data;
+      cuvByRef = new Map();
+      cuvByBook = new Map();
+      for (const b of data.books) {
+        cuvByBook.set(b.slug, { ...b, chapters: new Map() });
+      }
+      for (const v of data.verses) {
+        const ref = `${cuvByBook.get(v.book).abbr} ${v.chapter}:${v.verse}`;
+        cuvByRef.set(ref, v.text);
+        const bk = cuvByBook.get(v.book);
+        if (!bk.chapters.has(v.chapter)) bk.chapters.set(v.chapter, new Map());
+        bk.chapters.get(v.chapter).set(v.verse, v.text);
+      }
+      return data;
+    });
+    return cuvLoading;
+  }
+
+  // Build an alias map for parsing reference strings: "可", "馬可福音", "Mar", "mar" → slug
+  function buildAliasMap() {
+    const map = new Map();
+    if (!cuv) return map;
+    for (const b of cuv.books) {
+      map.set(b.abbr, b.slug);
+      map.set(b.zh, b.slug);
+      map.set(b.slug.toLowerCase(), b.slug);
+    }
+    return map;
+  }
+
+  // Parse strings like "可 10:45", "馬可福音 10:45", "可10:45", "mar 10:45"
+  function parseRef(s) {
+    if (!cuv) return null;
+    const aliases = buildAliasMap();
+    const m = s.trim().match(/^([一-鿿]{1,6}|[A-Za-z]{2,3})\s*(\d{1,3})\s*[:：]\s*(\d{1,3})$/);
+    if (!m) return null;
+    const slug = aliases.get(m[1]) || aliases.get(m[1].toLowerCase());
+    if (!slug) return null;
+    const ch = parseInt(m[2], 10), vs = parseInt(m[3], 10);
+    const bk = cuvByBook.get(slug);
+    const text = bk?.chapters.get(ch)?.get(vs);
+    if (!text) return null;
+    return { ref: `${bk.abbr} ${ch}:${vs}`, text, book: slug, chapter: ch, verse: vs };
+  }
+
+  // ============================================================================
+  // Masking
+  // ============================================================================
+  const isHan = (ch) => /[一-鿿]/.test(ch);
+
+  function defaultRevealed(text) {
+    const set = new Set();
+    let hanIdx = 0;
+    [...text].forEach((ch, i) => {
+      if (isHan(ch)) {
+        if (hanIdx % 3 === 0) set.add(i);
+        hanIdx++;
+      }
+    });
+    return set;
+  }
+
+  function renderMasked(text, revealed) {
+    return [...text].map((ch, i) => {
+      if (!isHan(ch)) return `<span>${escapeHtml(ch)}</span>`;
+      if (revealed.has(i)) return `<span class="revealed">${escapeHtml(ch)}</span>`;
+      return `<span class="masked">〇</span>`;
+    }).join("");
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  // ============================================================================
+  // Audio (Web Speech API)
+  // ============================================================================
+  // Voice lists in some browsers (Chrome) populate asynchronously. Cache once ready.
+  let _voicesReady = null;
+  function voicesReady() {
+    if (_voicesReady) return _voicesReady;
+    _voicesReady = new Promise(resolve => {
+      const initial = speechSynthesis.getVoices();
+      if (initial.length) return resolve(initial);
+      speechSynthesis.addEventListener("voiceschanged", () => {
+        resolve(speechSynthesis.getVoices());
+      }, { once: true });
+      // Safety timeout — some browsers never fire the event
+      setTimeout(() => resolve(speechSynthesis.getVoices()), 1500);
+    });
+    return _voicesReady;
+  }
+
+  function listZhVoices(voices) {
+    const allZh = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("zh"));
+    const onlyGoogle = allZh.filter(v => VOICE_FILTER_RE.test(v.name));
+    // Prefer Google subset, but fall back to all zh voices when none exist
+    // (e.g. iOS Safari, which only exposes Apple voices).
+    return onlyGoogle.length ? onlyGoogle : allZh;
+  }
+
+  // Smart default. Priority:
+  //   1. user-saved voiceURI (if still available)
+  //   2. zh-TW + premium keyword
+  //   3. zh-TW
+  //   4. zh-HK + premium
+  //   5. zh-HK
+  //   6. zh-CN + premium
+  //   7. zh-CN
+  //   8. any zh-*
+  function pickBestVoice(voices) {
+    if (settings.voiceURI) {
+      const saved = voices.find(v => v.voiceURI === settings.voiceURI);
+      if (saved) return saved;
+    }
+    // Restrict to Google voices to match the picker UI — but fall back to all
+    // when none exist (iOS Safari has Apple voices only).
+    const googleOnly = voices.filter(v => VOICE_FILTER_RE.test(v.name));
+    const candidates = googleOnly.length ? googleOnly : voices;
+    const tiers = [
+      v => v.lang === "zh-TW",
+      v => v.lang === "zh-HK",
+      v => v.lang === "zh-CN",
+      v => v.lang && v.lang.toLowerCase().startsWith("zh"),
+    ];
+    for (const f of tiers) {
+      const m = candidates.find(f);
+      if (m) return m;
+    }
+    return null;
+  }
+
+  async function speak(text) {
+    if (!window.speechSynthesis) {
+      alert("此瀏覽器不支援語音合成");
+      return;
+    }
+    speechSynthesis.cancel();
+    const voices = await voicesReady();
+    const pick = pickBestVoice(voices);
+    const u = new SpeechSynthesisUtterance(text);
+    if (pick) u.voice = pick;
+    u.lang = pick?.lang || "zh-TW";
+    u.rate = settings.rate;
+    u.pitch = settings.pitch;
+    speechSynthesis.speak(u);
+  }
+
+  // ============================================================================
+  // Drill view
+  // ============================================================================
+  let drill = { current: null, queue: [], revealed: new Set(), fullyShown: false };
+
+  function buildDrillQueue() {
+    const due = allVerses().filter(v => isDue(v.ref));
+    due.sort((a, b) => {
+      const sa = getState(a.ref), sb = getState(b.ref);
+      if (!sa.lastReviewed && !sb.lastReviewed) return 0;
+      if (!sa.lastReviewed) return -1;
+      if (!sb.lastReviewed) return 1;
+      return new Date(sa.lastReviewed) - new Date(sb.lastReviewed);
+    });
+    return due;
+  }
+
+  function nextDrillCard() {
+    drill.queue = buildDrillQueue();
+    drill.current = drill.queue[0] || null;
+    drill.fullyShown = false;
+    drill.revealed = drill.current ? defaultRevealed(drill.current.text) : new Set();
+    renderDrill();
+  }
+
+  function renderDrill() {
+    const content = document.getElementById("content");
+    updateStats();
+
+    if (allVerses().length === 0) {
+      content.innerHTML = `
+        <div class="card">
+          <div class="empty">
+            <div style="font-size:1.1rem;margin-bottom:0.75rem;">尚未加入經文</div>
+            <div>切換到「瀏覽」分頁,搜尋或選取要背的經文。</div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    if (!drill.current) {
+      content.innerHTML = `
+        <div class="card">
+          <div class="empty">
+            <div style="font-size:1.2rem;margin-bottom:0.5rem;">今日已完成 ✓</div>
+            <div>下一輪複習依 Leitner 間隔自動安排。</div>
+          </div>
+          ${renderBoxDist()}
+        </div>`;
+      return;
+    }
+
+    const masked = renderMasked(drill.current.text, drill.revealed);
+    const box = getState(drill.current.ref).box;
+
+    content.innerHTML = `
+      <div class="card">
+        <div class="ref">
+          <span class="speak" data-action="speak" title="朗讀">🔊</span>
+          ${escapeHtml(drill.current.ref)} · 盒 ${box}
+        </div>
+        <div class="text" id="verse">${masked}</div>
+        <div class="controls">
+          ${drill.fullyShown
+            ? `<button class="btn ok" data-action="ok">記得</button>
+               <button class="btn no" data-action="no">忘了</button>`
+            : `<button class="btn" data-action="hint">提示</button>
+               <button class="btn primary" data-action="show">顯示答案</button>
+               <button class="btn" data-action="skip">跳過</button>`}
+        </div>
+        ${renderBoxDist()}
+      </div>`;
+
+    content.querySelectorAll("[data-action]").forEach(b => {
+      b.addEventListener("click", () => handleDrill(b.dataset.action));
+    });
+  }
+
+  function handleDrill(action) {
+    const cur = drill.current;
+    if (!cur && action !== "speak") return;
+
+    if (action === "speak") {
+      speak(cur ? cur.text : "");
+    } else if (action === "hint") {
+      const hidden = [...cur.text]
+        .map((ch, i) => isHan(ch) && !drill.revealed.has(i) ? i : -1)
+        .filter(i => i >= 0);
+      if (hidden.length) {
+        drill.revealed.add(hidden[Math.floor(Math.random() * hidden.length)]);
+      }
+      renderDrill();
+    } else if (action === "show") {
+      drill.revealed = new Set([...cur.text].map((_, i) => i));
+      drill.fullyShown = true;
+      renderDrill();
+    } else if (action === "skip") {
+      drill.queue.shift();
+      drill.current = drill.queue[0] || null;
+      drill.fullyShown = false;
+      drill.revealed = drill.current ? defaultRevealed(drill.current.text) : new Set();
+      renderDrill();
+    } else if (action === "ok") {
+      const s = getState(cur.ref);
+      progress[cur.ref] = { box: Math.min(s.box + 1, MAX_BOX), lastReviewed: new Date().toISOString() };
+      saveJSON(PROGRESS_KEY, progress);
+      nextDrillCard();
+    } else if (action === "no") {
+      progress[cur.ref] = { box: 0, lastReviewed: new Date().toISOString() };
+      saveJSON(PROGRESS_KEY, progress);
+      nextDrillCard();
+    }
+  }
+
+  function updateStats() {
+    const total = allVerses().length;
+    const due = allVerses().filter(v => isDue(v.ref)).length;
+    const mastered = allVerses().filter(v => getState(v.ref).box === MAX_BOX).length;
+    document.getElementById("stats").textContent =
+      `今日 ${due} · 全部 ${total} · 已熟練 ${mastered}`;
+  }
+
+  function renderBoxDist() {
+    const counts = [0, 0, 0, 0, 0];
+    allVerses().forEach(v => counts[getState(v.ref).box]++);
+    return `<div class="box-dist">
+      ${counts.map((c, i) => `<span>盒 ${i}: ${c}</span>`).join("")}
+    </div>`;
+  }
+
+  // ============================================================================
+  // Browse view
+  // ============================================================================
+  let browse = { mode: "ref", bookSlug: null, chapter: null, query: "" };
+
+  async function renderBrowse() {
+    const content = document.getElementById("content");
+    updateStats();
+
+    content.innerHTML = `
+      <div class="browse">
+        <div class="browse-tabs">
+          <button data-mode="ref"    class="${browse.mode==="ref" ? "active" : ""}">直接輸入</button>
+          <button data-mode="search" class="${browse.mode==="search" ? "active" : ""}">搜尋經文</button>
+          <button data-mode="book"   class="${browse.mode==="book" ? "active" : ""}">按卷目錄</button>
+        </div>
+        <div id="browse-body">
+          <div class="loading">載入和合本資料 …</div>
+        </div>
+      </div>`;
+
+    content.querySelectorAll("[data-mode]").forEach(b => {
+      b.addEventListener("click", () => {
+        browse.mode = b.dataset.mode;
+        browse.bookSlug = null; browse.chapter = null;
+        renderBrowse();
+      });
+    });
+
+    try { await loadCUV(); }
+    catch (e) {
+      document.getElementById("browse-body").innerHTML =
+        `<div class="empty">無法載入 cuv.json:${escapeHtml(String(e))}</div>`;
+      return;
+    }
+
+    if (browse.mode === "ref") renderBrowseRef();
+    else if (browse.mode === "search") renderBrowseSearch();
+    else renderBrowseBook();
+  }
+
+  function renderBrowseRef() {
+    const body = document.getElementById("browse-body");
+    body.innerHTML = `
+      <input type="text" id="ref-input" placeholder="輸入經卷編號(例如:可 10:45 或 馬可福音 10:45)">
+      <div class="hint">支援:中文簡稱(可、太、約)、全名(馬可福音)、英文 slug(mar)。</div>
+      <div id="ref-result"></div>`;
+    const input = document.getElementById("ref-input");
+    input.focus();
+    input.addEventListener("input", (e) => {
+      const v = parseRef(e.target.value);
+      const r = document.getElementById("ref-result");
+      r.innerHTML = v ? renderVerseResult(v) : (e.target.value.trim() ? `<div class="hint">找不到此經文。</div>` : "");
+      r.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => addVerse(b.dataset.add)));
+    });
+  }
+
+  function renderBrowseSearch() {
+    const body = document.getElementById("browse-body");
+    body.innerHTML = `
+      <input type="text" id="search-input" placeholder="搜尋經文內容(例如:愛是恆久、互相效力)">
+      <div class="hint">最少 2 個字。結果上限 50 條。</div>
+      <div id="search-results"></div>`;
+    const input = document.getElementById("search-input");
+    input.focus();
+    let timer;
+    input.addEventListener("input", (e) => {
+      clearTimeout(timer);
+      const q = e.target.value.trim();
+      const r = document.getElementById("search-results");
+      if (q.length < 2) { r.innerHTML = ""; return; }
+      timer = setTimeout(() => {
+        const results = [];
+        for (const v of cuv.verses) {
+          if (v.text.includes(q)) {
+            const bk = cuvByBook.get(v.book);
+            results.push({ ref: `${bk.abbr} ${v.chapter}:${v.verse}`, text: v.text });
+            if (results.length >= 50) break;
+          }
+        }
+        if (!results.length) { r.innerHTML = `<div class="hint">沒有結果。</div>`; return; }
+        r.innerHTML = results.map(renderVerseResult).join("");
+        r.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => addVerse(b.dataset.add)));
+      }, 150);
+    });
+  }
+
+  function renderBrowseBook() {
+    const body = document.getElementById("browse-body");
+
+    if (!browse.bookSlug) {
+      const ot = cuv.books.filter(b => b.testament === "OT");
+      const nt = cuv.books.filter(b => b.testament === "NT");
+      const renderGroup = (label, books) =>
+        `<div class="testament-label">${label}</div>` +
+        books.map(b => `<button data-slug="${b.slug}">${escapeHtml(b.zh)}</button>`).join("");
+      body.innerHTML = `<div class="book-grid">
+        ${renderGroup("舊約", ot)}
+        ${renderGroup("新約", nt)}
+      </div>`;
+      body.querySelectorAll("[data-slug]").forEach(b => {
+        b.addEventListener("click", () => {
+          browse.bookSlug = b.dataset.slug;
+          browse.chapter = null;
+          renderBrowse();
+        });
+      });
+      return;
+    }
+
+    const bk = cuvByBook.get(browse.bookSlug);
+    if (!browse.chapter) {
+      const chs = [...bk.chapters.keys()].sort((a,b) => a-b);
+      body.innerHTML = `
+        <button class="back-btn" data-back>← 回卷目錄</button>
+        <div style="font-weight:600;margin:0.5rem 0;">${escapeHtml(bk.zh)} — 選擇章</div>
+        <div class="chap-grid">
+          ${chs.map(c => `<button data-chap="${c}">${c}</button>`).join("")}
+        </div>`;
+      body.querySelector("[data-back]").addEventListener("click", () => {
+        browse.bookSlug = null; renderBrowse();
+      });
+      body.querySelectorAll("[data-chap]").forEach(b => {
+        b.addEventListener("click", () => {
+          browse.chapter = parseInt(b.dataset.chap, 10);
+          renderBrowse();
+        });
+      });
+      return;
+    }
+
+    const verses = [...bk.chapters.get(browse.chapter).entries()].sort((a,b) => a[0]-b[0]);
+    body.innerHTML = `
+      <button class="back-btn" data-back>← 回章目錄</button>
+      <div style="font-weight:600;margin:0.5rem 0;">${escapeHtml(bk.zh)} ${browse.chapter} — 點選加入</div>
+      <div id="ch-verses">
+        ${verses.map(([vs, text]) => renderVerseResult({
+          ref: `${bk.abbr} ${browse.chapter}:${vs}`,
+          text
+        })).join("")}
+      </div>`;
+    body.querySelector("[data-back]").addEventListener("click", () => {
+      browse.chapter = null; renderBrowse();
+    });
+    body.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => addVerse(b.dataset.add)));
+  }
+
+  function renderVerseResult(v) {
+    const inList = allVerses().some(x => x.ref === v.ref);
+    return `
+      <div class="verse-result" data-ref="${escapeHtml(v.ref)}">
+        <div class="vr-text">
+          <div class="vr-ref">${escapeHtml(v.ref)}</div>
+          <div class="vr-body">${escapeHtml(v.text)}</div>
+        </div>
+        <button data-add="${escapeHtml(v.ref)}" class="${inList ? "added" : ""}">${inList ? "已加入" : "加入"}</button>
+      </div>`;
+  }
+
+  function addVerse(ref) {
+    if (allVerses().some(v => v.ref === ref)) return;
+    const text = cuvByRef.get(ref);
+    if (!text) return;
+    customVerses.push({ ref, text });
+    saveJSON(CUSTOM_KEY, customVerses);
+    // Re-render the verse-result item to toggle "已加入"
+    const node = document.querySelector(`.verse-result[data-ref="${CSS.escape(ref)}"] button`);
+    if (node) { node.textContent = "已加入"; node.classList.add("added"); node.removeAttribute("data-add"); }
+    updateStats();
+  }
+
+  // ============================================================================
+  // My-list view
+  // ============================================================================
+  function renderList() {
+    const content = document.getElementById("content");
+    updateStats();
+    const verses = allVerses();
+    const isCustom = (ref) => customVerses.some(v => v.ref === ref);
+
+    if (!verses.length) {
+      content.innerHTML = `<div class="card"><div class="empty">尚未加入經文。</div></div>`;
+      return;
+    }
+
+    content.innerHTML = `
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:0.75rem;">我的清單(${verses.length})</div>
+        ${verses.map(v => {
+          const box = getState(v.ref).box;
+          const due = isDue(v.ref) ? "✓今日" : "—";
+          return `
+            <div class="verse-result" data-ref="${escapeHtml(v.ref)}">
+              <div class="vr-text">
+                <div class="vr-ref">${escapeHtml(v.ref)} · 盒 ${box} · ${due}</div>
+                <div class="vr-body">${escapeHtml(v.text)}</div>
+              </div>
+              ${isCustom(v.ref)
+                ? `<button data-remove="${escapeHtml(v.ref)}" style="border-color:var(--no);color:var(--no);">移除</button>`
+                : `<span style="color:var(--muted);font-size:0.8rem;">內建</span>`}
+            </div>`;
+        }).join("")}
+      </div>`;
+
+    content.querySelectorAll("[data-remove]").forEach(b => {
+      b.addEventListener("click", () => {
+        const ref = b.dataset.remove;
+        customVerses = customVerses.filter(v => v.ref !== ref);
+        saveJSON(CUSTOM_KEY, customVerses);
+        delete progress[ref];
+        saveJSON(PROGRESS_KEY, progress);
+        renderList();
+      });
+    });
+  }
+
+  // ============================================================================
+  // Settings view (voice / rate / pitch)
+  // ============================================================================
+  async function renderSettings() {
+    const content = document.getElementById("content");
+    updateStats();
+
+    const supported = !!window.speechSynthesis;
+    if (!supported) {
+      content.innerHTML = `<div class="card"><div class="empty">此瀏覽器不支援語音合成。</div></div>`;
+      return;
+    }
+
+    content.innerHTML = `<div class="card"><div class="loading">載入聲音清單 …</div></div>`;
+    const voices = await voicesReady();
+    const zh = listZhVoices(voices);
+    const current = pickBestVoice(voices);
+
+    const sampleText = "神愛世人，甚至將他的獨生子賜給他們，叫一切信他的，不至滅亡，反得永生。";
+
+    const noGoogle = zh.length === 0;
+    content.innerHTML = `
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:0.75rem;">朗讀設定</div>
+
+        <label style="display:block;font-size:0.9rem;margin-bottom:0.3rem;color:var(--muted);">中文聲音(${zh.length} 個可用)</label>
+        ${noGoogle ? `
+          <div class="hint" style="padding:0.75rem;background:#fef6e7;border:1px solid #e8d8a0;border-radius:4px;color:#7a5f1a;">
+            此瀏覽器找不到中文聲音。
+          </div>
+        ` : `
+        <select id="voice-select" style="width:100%;padding:0.55rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:inherit;font-size:0.95rem;">
+          ${zh.map(v => {
+            const local = v.localService ? "" : " (雲端)";
+            const sel = current && v.voiceURI === current.voiceURI ? "selected" : "";
+            return `<option value="${escapeHtml(v.voiceURI)}" ${sel}>${escapeHtml(v.name)} — ${escapeHtml(v.lang)}${local}</option>`;
+          }).join("")}
+        </select>
+        <div class="hint">Google 聲音為雲端合成,需要網路連線。</div>
+        `}
+
+        <div style="display:flex;gap:1rem;margin-top:1rem;">
+          <div style="flex:1;">
+            <label style="display:block;font-size:0.9rem;color:var(--muted);">語速 <span id="rate-val">${settings.rate.toFixed(2)}</span></label>
+            <input type="range" id="rate-slider" min="0.5" max="1.5" step="0.05" value="${settings.rate}" style="width:100%;">
+          </div>
+          <div style="flex:1;">
+            <label style="display:block;font-size:0.9rem;color:var(--muted);">音高 <span id="pitch-val">${settings.pitch.toFixed(2)}</span></label>
+            <input type="range" id="pitch-slider" min="0.5" max="1.5" step="0.05" value="${settings.pitch}" style="width:100%;">
+          </div>
+        </div>
+
+        <div class="controls" style="margin-top:1rem;">
+          <button class="btn primary" id="test-speak">🔊 試聽</button>
+          <button class="btn" id="reset-voice">恢復預設</button>
+        </div>
+
+        <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:0.85rem;color:var(--muted);line-height:1.7;">
+          <div style="font-weight:600;color:var(--ink);margin-bottom:0.5rem;">關於 Google 聲音</div>
+          <div>Google 中文 TTS 由 Chrome 內建提供,屬於雲端合成,需要連線。Safari 與 Firefox 通常不提供 Google 聲音。</div>
+          <div style="margin-top:0.4rem;">若仍不夠自然,可接入 OpenAI / Azure / ElevenLabs 雲端 TTS,需要 API 金鑰。</div>
+        </div>
+      </div>`;
+
+    const voiceSel = document.getElementById("voice-select");
+    const rateSlider = document.getElementById("rate-slider");
+    const pitchSlider = document.getElementById("pitch-slider");
+
+    if (voiceSel) {
+      voiceSel.addEventListener("change", () => {
+        settings.voiceURI = voiceSel.value;
+        saveJSON(SETTINGS_KEY, settings);
+      });
+    }
+    rateSlider.addEventListener("input", () => {
+      settings.rate = parseFloat(rateSlider.value);
+      document.getElementById("rate-val").textContent = settings.rate.toFixed(2);
+      saveJSON(SETTINGS_KEY, settings);
+    });
+    pitchSlider.addEventListener("input", () => {
+      settings.pitch = parseFloat(pitchSlider.value);
+      document.getElementById("pitch-val").textContent = settings.pitch.toFixed(2);
+      saveJSON(SETTINGS_KEY, settings);
+    });
+    document.getElementById("test-speak").addEventListener("click", () => speak(sampleText));
+    document.getElementById("reset-voice").addEventListener("click", () => {
+      settings = { voiceURI: "", rate: 0.85, pitch: 1.0 };
+      saveJSON(SETTINGS_KEY, settings);
+      renderSettings();
+    });
+  }
+
+  // ============================================================================
+  // Export / Import
+  // ============================================================================
+  function exportProgress() {
+    const blob = new Blob([JSON.stringify({
+      progress, customVerses,
+      exportedAt: new Date().toISOString(),
+      version: 1,
+    }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `背經進度-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function importProgress(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!data.progress || !data.customVerses) throw new Error("檔案缺少 progress 或 customVerses 欄位");
+
+        // Merge progress: max box for each ref; latest lastReviewed wins
+        for (const [ref, s] of Object.entries(data.progress)) {
+          const existing = progress[ref];
+          if (!existing || s.box > existing.box ||
+              (s.box === existing.box && new Date(s.lastReviewed) > new Date(existing.lastReviewed))) {
+            progress[ref] = s;
+          }
+        }
+        // Merge custom verses (dedupe by ref)
+        const refs = new Set(customVerses.map(v => v.ref));
+        for (const v of data.customVerses) {
+          if (!refs.has(v.ref)) customVerses.push(v);
+        }
+        saveJSON(PROGRESS_KEY, progress);
+        saveJSON(CUSTOM_KEY, customVerses);
+        alert(`匯入完成。共合併 ${Object.keys(data.progress).length} 條進度,${data.customVerses.length} 條自訂經文。`);
+        setView(currentView);
+      } catch (e) {
+        alert(`匯入失敗:${e.message}`);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // ============================================================================
+  // View routing
+  // ============================================================================
+  let currentView = "drill";
+
+  function setView(v) {
+    currentView = v;
+    document.querySelectorAll("nav [data-view]").forEach(b => {
+      b.classList.toggle("active", b.dataset.view === v);
+    });
+    if (v === "drill") { nextDrillCard(); }
+    else if (v === "browse") { renderBrowse(); }
+    else if (v === "list") { renderList(); }
+    else if (v === "settings") { renderSettings(); }
+  }
+
+  document.querySelectorAll("nav [data-view]").forEach(b => {
+    b.addEventListener("click", () => setView(b.dataset.view));
+  });
+
+  document.getElementById("export").addEventListener("click", (e) => {
+    e.preventDefault(); exportProgress();
+  });
+  document.getElementById("import-file").addEventListener("change", (e) => {
+    if (e.target.files[0]) importProgress(e.target.files[0]);
+    e.target.value = "";
+  });
+  document.getElementById("reset").addEventListener("click", (e) => {
+    e.preventDefault();
+    if (confirm("確定要清除所有進度?(自訂經文也會刪除,但聲音設定保留)")) {
+      localStorage.removeItem(PROGRESS_KEY);
+      localStorage.removeItem(CUSTOM_KEY);
+      progress = {}; customVerses = [];
+      setView(currentView);
+    }
+  });
+
+  setView("drill");
+})();
+</script>
+</body>
+</html>
