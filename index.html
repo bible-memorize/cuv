@@ -188,6 +188,7 @@
 </div>
 
 <script src="verses.js"></script>
+<script src="s2t.js"></script>
 <script>
 (() => {
   // ============================================================================
@@ -346,11 +347,12 @@
   }
 
   function listZhVoices(voices) {
+    // Strict: only zh-TW (台灣國語). Fall back to all zh voices only when no zh-TW exists.
+    const tw   = voices.filter(v => v.lang === "zh-TW");
     const allZh = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("zh"));
-    const onlyGoogle = allZh.filter(v => VOICE_FILTER_RE.test(v.name));
-    // Prefer Google subset, but fall back to all zh voices when none exist
-    // (e.g. iOS Safari, which only exposes Apple voices).
-    return onlyGoogle.length ? onlyGoogle : allZh;
+    const pool = tw.length ? tw : allZh;
+    const onlyGoogle = pool.filter(v => VOICE_FILTER_RE.test(v.name));
+    return onlyGoogle.length ? onlyGoogle : pool;
   }
 
   // Smart default. Priority:
@@ -365,42 +367,41 @@
   function pickBestVoice(voices) {
     if (settings.voiceURI) {
       const saved = voices.find(v => v.voiceURI === settings.voiceURI);
-      if (saved) return saved;
+      if (saved && saved.lang === "zh-TW") return saved;  // honor saved only if it's zh-TW
     }
-    // Restrict to Google voices to match the picker UI — but fall back to all
-    // when none exist (iOS Safari has Apple voices only).
+    // Strictly prefer zh-TW (台灣國語). Only consider other zh- variants as a last resort.
     const googleOnly = voices.filter(v => VOICE_FILTER_RE.test(v.name));
     const candidates = googleOnly.length ? googleOnly : voices;
-    const tiers = [
-      v => v.lang === "zh-TW",
-      v => v.lang === "zh-HK",
-      v => v.lang === "zh-CN",
-      v => v.lang && v.lang.toLowerCase().startsWith("zh"),
-    ];
-    for (const f of tiers) {
-      const m = candidates.find(f);
-      if (m) return m;
-    }
-    return null;
+    const tw = candidates.find(v => v.lang === "zh-TW");
+    if (tw) return tw;
+    // Fall back: any zh voice (so the app still has audio if zh-TW unavailable)
+    return candidates.find(v => v.lang && v.lang.toLowerCase().startsWith("zh")) || null;
   }
 
   async function speakViaOpenAI(text) {
     const k = `${settings.openai.voice}|${settings.openai.model}|${settings.rate}|${text}`;
     let url = openaiCache.get(k);
     if (!url) {
+      // Build request body. `instructions` is only supported by `gpt-4o-mini-tts`;
+      // older `tts-1`/`tts-1-hd` ignore it (or 400 if strict). We send it only when supported.
+      const body = {
+        model: settings.openai.model,
+        input: text,
+        voice: settings.openai.voice,
+        speed: Math.max(0.25, Math.min(4.0, settings.rate)),
+        response_format: "mp3",
+      };
+      if (settings.openai.model === "gpt-4o-mini-tts") {
+        body.instructions =
+          "請以台灣國語(繁體中文)朗讀這段聖經經文。發音清晰、語速穩定、語氣莊重恭敬,符合 zh-TW 口音,不要使用大陸普通話腔調。";
+      }
       const res = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${settings.openai.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: settings.openai.model,
-          input: text,
-          voice: settings.openai.voice,
-          speed: Math.max(0.25, Math.min(4.0, settings.rate)),
-          response_format: "mp3",
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.text();
@@ -424,7 +425,9 @@
     const pick = pickBestVoice(voices);
     const u = new SpeechSynthesisUtterance(text);
     if (pick) u.voice = pick;
-    u.lang = pick?.lang || "zh-TW";
+    // Force zh-TW regardless of picked voice's lang, to hint Taiwanese pronunciation
+    // (synthesizer may ignore if voice doesn't match, but worth trying)
+    u.lang = "zh-TW";
     u.rate = settings.rate;
     u.pitch = settings.pitch;
     speechSynthesis.speak(u);
@@ -597,6 +600,20 @@
     }
   }
 
+  // Convert Simplified (and TW-variant Traditional) → general Traditional using
+  // the bundled OpenCC character map. Browser speech recognizers (esp.
+  // Chrome/Google) often return Simplified even with lang="zh-TW", so we
+  // normalize before comparing against CUV.
+  if (!window.S2T) {
+    console.warn("[memorize] s2t.js not loaded — Simplified characters in voice recognition will not be normalized.");
+  } else {
+    console.log(`[memorize] s2t map loaded (${Object.keys(window.S2T).length} entries)`);
+  }
+  function traditionalize(s) {
+    if (!window.S2T) return s;
+    return [...(s || "")].map(c => window.S2T[c] || c).join("");
+  }
+
   function normalizeHan(s) {
     return [...(s || "")].filter(c => /[一-鿿]/.test(c));
   }
@@ -625,7 +642,8 @@
 
   function compareVerse(canonical, spoken) {
     const a = normalizeHan(canonical);
-    const b = normalizeHan(spoken);
+    // Convert Simplified → Traditional before comparison
+    const b = normalizeHan(traditionalize(spoken));
     const ops = lcsAlign(a, b);
     const statuses = [];
     for (const op of ops) {
@@ -707,7 +725,7 @@
           </div>
         </div>`;
     } else if (exam.phase === "listening") {
-      const live = exam.finalText + exam.interimText;
+      const live = traditionalize(exam.finalText + exam.interimText);
       content.innerHTML = `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
@@ -735,7 +753,7 @@
           <div class="text" style="line-height:2.4;">${diff}</div>
           <div style="margin-top:0.75rem;padding:0.75rem;background:#f7f4ed;border-radius:4px;font-size:0.9rem;color:var(--muted);line-height:1.7;">
             <div><strong style="color:var(--ink);">原文:</strong>${escapeHtml(exam.current.text)}</div>
-            <div style="margin-top:0.4rem;"><strong style="color:var(--ink);">你說:</strong>${escapeHtml(exam.finalText) || "<無辨識結果>"}</div>
+            <div style="margin-top:0.4rem;"><strong style="color:var(--ink);">你說:</strong>${escapeHtml(traditionalize(exam.finalText)) || "<無辨識結果>"}</div>
             ${r.extras ? `<div style="margin-top:0.4rem;color:var(--no);"><strong>多餘字:</strong>${escapeHtml(r.extras)}</div>` : ""}
           </div>
           <div class="controls" style="margin-top:1rem;">
@@ -803,7 +821,7 @@
       exam.interimText = interim;
       // In-place update of just the transcript line to avoid full re-render flicker
       const live = document.getElementById("exam-live");
-      if (live) live.textContent = (final + interim) || "🎙️ 正在聆聽…";
+      if (live) live.textContent = traditionalize(final + interim) || "🎙️ 正在聆聽…";
     };
     rec.onerror = (e) => {
       if (e.error === "not-allowed") {
@@ -1075,20 +1093,21 @@
       <div class="card">
         <div style="font-weight:600;margin-bottom:0.75rem;">朗讀設定</div>
 
-        <label style="display:block;font-size:0.9rem;margin-bottom:0.3rem;color:var(--muted);">中文聲音(${zh.length} 個可用)</label>
+        <label style="display:block;font-size:0.9rem;margin-bottom:0.3rem;color:var(--muted);">台灣國語聲音 zh-TW(${zh.length} 個可用)</label>
         ${noGoogle ? `
           <div class="hint" style="padding:0.75rem;background:#fef6e7;border:1px solid #e8d8a0;border-radius:4px;color:#7a5f1a;">
-            此瀏覽器找不到中文聲音。
+            此瀏覽器找不到 zh-TW 聲音。可改用 Chrome,或啟用下方 OpenAI 雲端朗讀(可指定台灣國語腔調)。
           </div>
         ` : `
         <select id="voice-select" style="width:100%;padding:0.55rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:inherit;font-size:0.95rem;">
           ${zh.map(v => {
             const local = v.localService ? "" : " (雲端)";
             const sel = current && v.voiceURI === current.voiceURI ? "selected" : "";
-            return `<option value="${escapeHtml(v.voiceURI)}" ${sel}>${escapeHtml(v.name)} — ${escapeHtml(v.lang)}${local}</option>`;
+            const langWarn = v.lang === "zh-TW" ? "" : ` ⚠ 非 TW`;
+            return `<option value="${escapeHtml(v.voiceURI)}" ${sel}>${escapeHtml(v.name)} — ${escapeHtml(v.lang)}${langWarn}${local}</option>`;
           }).join("")}
         </select>
-        <div class="hint">Google 聲音為雲端合成,需要網路連線。</div>
+        <div class="hint">僅顯示 zh-TW 聲音(台灣國語)。Google 聲音為雲端合成,需要網路連線。</div>
         `}
 
         <div style="display:flex;gap:1rem;margin-top:1rem;">
@@ -1141,9 +1160,9 @@
               <label style="display:block;font-size:0.9rem;color:var(--muted);margin-bottom:0.25rem;">模型</label>
               <select id="openai-model" style="width:100%;padding:0.5rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:inherit;">
                 ${[
-                  ["tts-1",            "tts-1(快、便宜)"],
-                  ["tts-1-hd",         "tts-1-hd(高品質)"],
-                  ["gpt-4o-mini-tts",  "gpt-4o-mini-tts(最新)"],
+                  ["gpt-4o-mini-tts",  "gpt-4o-mini-tts(推薦,支援台灣國語腔調)"],
+                  ["tts-1-hd",         "tts-1-hd(高品質,通用普通話)"],
+                  ["tts-1",            "tts-1(快、便宜,通用普通話)"],
                 ].map(([v,l]) => `<option value="${v}" ${settings.openai.model===v?"selected":""}>${l}</option>`).join("")}
               </select>
             </div>
