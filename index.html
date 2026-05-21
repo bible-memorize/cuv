@@ -214,7 +214,14 @@
 
   let progress = loadJSON(PROGRESS_KEY, {});
   let customVerses = loadJSON(CUSTOM_KEY, []);  // [{ref, text}]
-  let settings = loadJSON(SETTINGS_KEY, { voiceURI: "", rate: 0.85, pitch: 1.0 });
+  let settings = loadJSON(SETTINGS_KEY, {
+    voiceURI: "", rate: 0.85, pitch: 1.0,
+    openai: { enabled: false, apiKey: "", voice: "alloy", model: "tts-1" },
+  });
+  if (!settings.openai) settings.openai = { enabled: false, apiKey: "", voice: "alloy", model: "tts-1" };
+
+  // In-memory cache of OpenAI-generated audio blobs. Keyed by `${voice}|${model}|${rate}|${text}`.
+  const openaiCache = new Map();
 
   const allVerses = () => {
     // Seed + custom, deduplicated by ref (custom overrides seed if same ref)
@@ -376,11 +383,41 @@
     return null;
   }
 
-  async function speak(text) {
-    if (!window.speechSynthesis) {
-      alert("此瀏覽器不支援語音合成");
-      return;
+  async function speakViaOpenAI(text) {
+    const k = `${settings.openai.voice}|${settings.openai.model}|${settings.rate}|${text}`;
+    let url = openaiCache.get(k);
+    if (!url) {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${settings.openai.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: settings.openai.model,
+          input: text,
+          voice: settings.openai.voice,
+          speed: Math.max(0.25, Math.min(4.0, settings.rate)),
+          response_format: "mp3",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        alert(`OpenAI TTS 失敗 (${res.status})：${err.slice(0, 240)}`);
+        return;
+      }
+      const blob = await res.blob();
+      url = URL.createObjectURL(blob);
+      openaiCache.set(k, url);
     }
+    // Stop any prior playback
+    if (window._curAudio) { try { window._curAudio.pause(); } catch {} }
+    const audio = new Audio(url);
+    window._curAudio = audio;
+    audio.play().catch(e => alert("播放失敗：" + e.message));
+  }
+
+  async function speakViaBrowser(text) {
     speechSynthesis.cancel();
     const voices = await voicesReady();
     const pick = pickBestVoice(voices);
@@ -390,6 +427,17 @@
     u.rate = settings.rate;
     u.pitch = settings.pitch;
     speechSynthesis.speak(u);
+  }
+
+  async function speak(text) {
+    if (settings.openai?.enabled && settings.openai?.apiKey) {
+      return speakViaOpenAI(text);
+    }
+    if (!window.speechSynthesis) {
+      alert("此瀏覽器不支援語音合成");
+      return;
+    }
+    return speakViaBrowser(text);
   }
 
   // ============================================================================
@@ -795,10 +843,56 @@
           <button class="btn" id="reset-voice">恢復預設</button>
         </div>
 
+        <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--line);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+            <div style="font-weight:600;">OpenAI 雲端朗讀(更自然的人聲)</div>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.9rem;">
+              <input type="checkbox" id="openai-enabled" ${settings.openai.enabled ? "checked" : ""}> 啟用
+            </label>
+          </div>
+          <div class="hint">啟用後,🔊 將改用 OpenAI TTS。每次朗讀會把該節經文送到 OpenAI 並下載音檔。費用約 0.0015 cent / 字($15 / 1M chars,tts-1)。</div>
+
+          <div style="margin-top:0.75rem;">
+            <label style="display:block;font-size:0.9rem;color:var(--muted);margin-bottom:0.25rem;">API 金鑰</label>
+            <input type="password" id="openai-key" placeholder="sk-..." value="${escapeHtml(settings.openai.apiKey)}"
+              style="width:100%;padding:0.55rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:0.9rem;">
+            <div class="hint">取自 <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent);">platform.openai.com/api-keys</a>。僅存於本機 localStorage,不會傳到任何第三方伺服器。</div>
+          </div>
+
+          <div style="display:flex;gap:0.75rem;margin-top:0.75rem;">
+            <div style="flex:1;">
+              <label style="display:block;font-size:0.9rem;color:var(--muted);margin-bottom:0.25rem;">聲音</label>
+              <select id="openai-voice" style="width:100%;padding:0.5rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:inherit;">
+                ${[
+                  ["alloy",   "alloy(中性)"],
+                  ["echo",    "echo(男)"],
+                  ["fable",   "fable(英式男)"],
+                  ["onyx",    "onyx(低沉男)"],
+                  ["nova",    "nova(活潑女)"],
+                  ["shimmer", "shimmer(溫和女)"],
+                ].map(([v,l]) => `<option value="${v}" ${settings.openai.voice===v?"selected":""}>${l}</option>`).join("")}
+              </select>
+            </div>
+            <div style="flex:1;">
+              <label style="display:block;font-size:0.9rem;color:var(--muted);margin-bottom:0.25rem;">模型</label>
+              <select id="openai-model" style="width:100%;padding:0.5rem;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);font-family:inherit;">
+                ${[
+                  ["tts-1",            "tts-1(快、便宜)"],
+                  ["tts-1-hd",         "tts-1-hd(高品質)"],
+                  ["gpt-4o-mini-tts",  "gpt-4o-mini-tts(最新)"],
+                ].map(([v,l]) => `<option value="${v}" ${settings.openai.model===v?"selected":""}>${l}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <div class="controls" style="margin-top:0.75rem;">
+            <button class="btn primary" id="test-openai" ${settings.openai.apiKey ? "" : "disabled"}>🔊 試聽 OpenAI</button>
+          </div>
+        </div>
+
         <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:0.85rem;color:var(--muted);line-height:1.7;">
-          <div style="font-weight:600;color:var(--ink);margin-bottom:0.5rem;">關於 Google 聲音</div>
-          <div>Google 中文 TTS 由 Chrome 內建提供,屬於雲端合成,需要連線。Safari 與 Firefox 通常不提供 Google 聲音。</div>
-          <div style="margin-top:0.4rem;">若仍不夠自然,可接入 OpenAI / Azure / ElevenLabs 雲端 TTS,需要 API 金鑰。</div>
+          <div style="font-weight:600;color:var(--ink);margin-bottom:0.5rem;">關於聲音</div>
+          <div>OpenAI TTS 是目前最接近人聲的選項;若不想用 API,可改用瀏覽器內建聲音(免費,品質視 OS 而定)。Google 中文 TTS 由 Chrome 內建提供,屬於雲端合成,需要連線。</div>
         </div>
       </div>`;
 
@@ -822,11 +916,50 @@
       document.getElementById("pitch-val").textContent = settings.pitch.toFixed(2);
       saveJSON(SETTINGS_KEY, settings);
     });
-    document.getElementById("test-speak").addEventListener("click", () => speak(sampleText));
+    document.getElementById("test-speak").addEventListener("click", () => {
+      // 試聽 button always uses browser voice so user can compare
+      speakViaBrowser(sampleText);
+    });
     document.getElementById("reset-voice").addEventListener("click", () => {
-      settings = { voiceURI: "", rate: 0.85, pitch: 1.0 };
+      settings = {
+        voiceURI: "", rate: 0.85, pitch: 1.0,
+        openai: { ...settings.openai },  // preserve OpenAI config
+      };
       saveJSON(SETTINGS_KEY, settings);
       renderSettings();
+    });
+
+    // OpenAI controls
+    const oEnabled = document.getElementById("openai-enabled");
+    const oKey     = document.getElementById("openai-key");
+    const oVoice   = document.getElementById("openai-voice");
+    const oModel   = document.getElementById("openai-model");
+    const oTest    = document.getElementById("test-openai");
+
+    const saveOpenAI = () => {
+      settings.openai = {
+        enabled: oEnabled.checked,
+        apiKey:  oKey.value.trim(),
+        voice:   oVoice.value,
+        model:   oModel.value,
+      };
+      saveJSON(SETTINGS_KEY, settings);
+      oTest.disabled = !settings.openai.apiKey;
+    };
+
+    oEnabled.addEventListener("change", saveOpenAI);
+    oKey.addEventListener("input", saveOpenAI);
+    oVoice.addEventListener("change", saveOpenAI);
+    oModel.addEventListener("change", saveOpenAI);
+    oTest.addEventListener("click", async () => {
+      if (!settings.openai.apiKey) { alert("請先輸入 API 金鑰。"); return; }
+      oTest.disabled = true;
+      oTest.textContent = "下載中…";
+      try { await speakViaOpenAI(sampleText); }
+      finally {
+        oTest.disabled = false;
+        oTest.textContent = "🔊 試聽 OpenAI";
+      }
     });
   }
 
