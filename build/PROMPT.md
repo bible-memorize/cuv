@@ -6,7 +6,7 @@ Feed this file to an LLM to reproduce the app from scratch. The prompt is self-c
 
 ## Goal
 
-Build a single-file static web app that helps a Traditional-Chinese reader memorize Bible verses from the **和合本 神版 (Chinese Union Version, 神 edition)** using **Leitner-box spaced repetition**, organized as the **生命河 背經行動** 12-month curriculum. Features:
+Build a single-file static web app that helps a Traditional-Chinese reader memorize Bible verses from the **和合本 神版 (Chinese Union Version, 神 edition)** using **Leitner-box spaced repetition**, organized as a **12-month memorization curriculum** (one theme per month). Features:
 
 - **練習** (drill): masked-character fill-in with self-grading.
 - **檢驗** (exam): voice-recognition verification with Simplified→Traditional normalization.
@@ -148,13 +148,13 @@ Browser speech recognizers (especially Google's, used by Chrome) often return Si
 
 ---
 
-## Verse plan: 生命河 背經行動
+## Verse plan: 12-month curriculum
 
 `verses.js` exposes both a structured 12-month plan and a flat array (backward compat):
 
 ```js
 window.VERSE_PLAN = {
-  meta: { name: "生命河 背經行動", description: "每月一個主題,逐節背誦。" },
+  meta: { name: "12 個月背經計劃", description: "每月一個主題,逐節背誦。" },
   months: [
     { month: 1,  theme: "屬靈的軍裝 (弗 6:12-18)",      verses: [...] },
     { month: 2,  theme: "效法基督 (腓 3:10-14)",        verses: [...] },
