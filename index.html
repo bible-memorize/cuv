@@ -267,11 +267,17 @@
 
   const getState = (ref) => progress[ref] || { box: 0, lastReviewed: null };
   const isDue = (ref) => {
+    if (forcedRefs.has(ref)) return true;
     const s = getState(ref);
     if (!s.lastReviewed) return true;
     const days = (Date.now() - new Date(s.lastReviewed).getTime()) / 86400000;
     return days >= INTERVALS[s.box];
   };
+
+  // In-memory set of refs the user has pushed into today's session via the
+  // "本月全部" button, overriding the spaced-repetition due-date check. Cleared
+  // on page reload (intentional — this is a one-session intent).
+  const forcedRefs = new Set();
 
   // ============================================================================
   // CUV data — lazy-loaded only when browse view is opened
@@ -353,6 +359,34 @@
       if (revealed.has(i)) return `<span class="revealed">${escapeHtml(ch)}</span>`;
       return `<span class="masked">〇</span>`;
     }).join("");
+  }
+
+  // Per-verse masked layout for whole-month cards. `revealed` is a Set of char
+  // indices over the joined text; we slice it per verse using running offsets
+  // so each verse keeps its own masked render but the global Set still drives
+  // hint/show without restructuring.
+  function renderWholeMonthMasked(card, revealed) {
+    let offset = 0;
+    return card.verses.map(v => {
+      const start = offset;
+      offset += [...v.text].length;
+      const verseRevealed = new Set();
+      [...v.text].forEach((_, i) => { if (revealed.has(start + i)) verseRevealed.add(i); });
+      return `
+        <div style="padding:0.5rem 0;border-bottom:1px dashed var(--line);">
+          <div style="font-size:0.78rem;color:var(--accent);font-weight:600;letter-spacing:0.08em;margin-bottom:0.25rem;">${escapeHtml(v.ref)}</div>
+          <div style="line-height:2;">${renderMasked(v.text, verseRevealed)}</div>
+        </div>`;
+    }).join("");
+  }
+
+  // Full-text per-verse layout (no mask) — used in exam preview.
+  function renderWholeMonthFull(card) {
+    return card.verses.map(v => `
+      <div style="padding:0.5rem 0;border-bottom:1px dashed var(--line);">
+        <div style="font-size:0.78rem;color:var(--accent);font-weight:600;letter-spacing:0.08em;margin-bottom:0.25rem;">${escapeHtml(v.ref)}</div>
+        <div style="line-height:2;">${escapeHtml(v.text)}</div>
+      </div>`).join("");
   }
 
   function escapeHtml(s) {
@@ -542,7 +576,9 @@
       return;
     }
 
-    const masked = renderMasked(drill.current.text, drill.revealed);
+    const masked = drill.current.isWholeMonth
+      ? renderWholeMonthMasked(drill.current, drill.revealed)
+      : renderMasked(drill.current.text, drill.revealed);
     const box = getState(drill.current.ref).box;
     const themeLine = drill.current.month
       ? `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">${drill.current.month}月 · ${escapeHtml(drill.current.theme || "")}</div>`
@@ -601,10 +637,12 @@
       const s = getState(cur.ref);
       progress[cur.ref] = { box: Math.min(s.box + 1, MAX_BOX), lastReviewed: new Date().toISOString() };
       saveJSON(PROGRESS_KEY, progress);
+      forcedRefs.delete(cur.ref);
       nextDrillCard();
     } else if (action === "no") {
       progress[cur.ref] = { box: 0, lastReviewed: new Date().toISOString() };
       saveJSON(PROGRESS_KEY, progress);
+      forcedRefs.delete(cur.ref);
       nextDrillCard();
     }
   }
@@ -635,6 +673,7 @@
       const empty = m.verses.length === 0 ? " (空)" : ` (${m.verses.length})`;
       return `<option value="${m.month}" ${sel}>${m.month}月 — ${escapeHtml(m.theme)}${empty}</option>`;
     }).join("");
+    const queueDisabled = cur === "all" ? "disabled" : "";
     return `
       <div style="background:var(--card);border:1px solid var(--line);border-radius:6px;padding:0.5rem 0.75rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;">
         <span style="color:var(--muted);white-space:nowrap;">📅</span>
@@ -642,16 +681,44 @@
           <option value="all" ${cur==="all"?"selected":""}>全部月份</option>
           ${opts}
         </select>
+        <button id="queue-month" ${queueDisabled} title="直接跳到「全月概覽」卡 — 一次顯示本月所有經文(每節含經卷編號)"
+          style="padding:0.35rem 0.7rem;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:3px;cursor:pointer;font-family:inherit;font-size:0.85rem;white-space:nowrap;${queueDisabled?'opacity:0.4;cursor:not-allowed;':''}">
+          全月概覽
+        </button>
       </div>`;
   }
 
   function wireMonthBar() {
     const sel = document.getElementById("month-select");
-    if (!sel) return;
-    sel.addEventListener("change", () => {
-      setActiveMonth(sel.value === "all" ? "all" : parseInt(sel.value, 10));
-      setView(currentView);
-    });
+    if (sel) {
+      sel.addEventListener("change", () => {
+        setActiveMonth(sel.value === "all" ? "all" : parseInt(sel.value, 10));
+        setView(currentView);
+      });
+    }
+    const queueBtn = document.getElementById("queue-month");
+    if (queueBtn && !queueBtn.disabled) {
+      queueBtn.addEventListener("click", () => {
+        const wm = activeVerses().find(v => v.isWholeMonth);
+        if (!wm) { alert("此月沒有全月卡資料。"); return; }
+        forcedRefs.add(wm.ref);
+        if (currentView === "exam") {
+          exam.current = wm;
+          exam.phase = "ready";
+          exam.finalText = "";
+          exam.interimText = "";
+          exam.result = null;
+          renderExam();
+        } else {
+          drill.queue = [wm];
+          drill.current = wm;
+          drill.fullyShown = false;
+          drill.revealed = defaultRevealed(wm.text);
+          if (currentView !== "drill") setView("drill");
+          else renderDrill();
+        }
+      });
+    }
   }
 
   // ============================================================================
@@ -815,11 +882,14 @@
           </div>
         </div>`;
     } else if (exam.phase === "preview") {
+      const previewHtml = exam.current.isWholeMonth
+        ? renderWholeMonthFull(exam.current)
+        : escapeHtml(exam.current.text);
       content.innerHTML = renderMonthBar() + `
         <div class="card">
           <div class="ref">${escapeHtml(ref)} · 盒 ${box}</div>
           ${themeLine}
-          <div class="text">${escapeHtml(exam.current.text)}</div>
+          <div class="text">${previewHtml}</div>
           <div class="controls">
             <button class="btn primary" data-action="start">🎤 開始錄音</button>
             <button class="btn" data-action="back">返回</button>
@@ -889,11 +959,13 @@
       const s = getState(exam.current.ref);
       progress[exam.current.ref] = { box: Math.min(s.box + 1, MAX_BOX), lastReviewed: new Date().toISOString() };
       saveJSON(PROGRESS_KEY, progress);
+      forcedRefs.delete(exam.current.ref);
       nextExamCard();
     }
     else if (action === "fail") {
       progress[exam.current.ref] = { box: 0, lastReviewed: new Date().toISOString() };
       saveJSON(PROGRESS_KEY, progress);
+      forcedRefs.delete(exam.current.ref);
       nextExamCard();
     }
     else if (action === "retry") {

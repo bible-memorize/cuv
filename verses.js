@@ -154,6 +154,25 @@ window.VERSE_PLAN = {
 
 // Flatten the monthly plan into the legacy flat array. Each verse carries its
 // month + theme so the app can filter and label without re-walking VERSE_PLAN.
-window.VERSES = window.VERSE_PLAN.months.flatMap(m =>
-  m.verses.map(v => ({ ...v, month: m.month, theme: m.theme }))
-);
+// In addition, append one "whole month" combined card per month whose text is
+// all of that month's verses joined together. It enters the drill/exam queue
+// like any other card (with its own Leitner box) and is filtered by the month
+// picker.
+window.VERSES = window.VERSE_PLAN.months.flatMap(m => {
+  const individual = m.verses.map(v => ({ ...v, month: m.month, theme: m.theme }));
+  if (m.verses.length === 0) return individual;
+  const firstRef = m.verses[0].ref;
+  const lastNum = m.verses[m.verses.length - 1].ref.match(/:(\d+)\s*$/)?.[1];
+  const combinedRef = lastNum ? `${firstRef}-${lastNum} · 全月` : `${firstRef} · 全月`;
+  const wholeMonth = {
+    ref: combinedRef,
+    text: m.verses.map(v => v.text).join(""),
+    month: m.month,
+    theme: m.theme,
+    isWholeMonth: true,
+    // `verses` is what the per-verse renderer walks to lay out each verse with
+    // its ref label. `text` (joined, no separator) is what speech/exam consume.
+    verses: m.verses.map(v => ({ ref: v.ref, text: v.text })),
+  };
+  return [...individual, wholeMonth];
+});
